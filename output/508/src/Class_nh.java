@@ -1,0 +1,2 @@
+interface Class_nh {
+}
