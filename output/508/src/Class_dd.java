@@ -619,7 +619,7 @@ final class Class_dd extends Class_wd {
          z++;
          int var4 = var1.P.s.length;
          if (var3 <= 18) {
-            a((Class_wj)null, (byte)14, -77);
+            a((int[])null, (byte)14, -77);
          }
 
          int var5;
@@ -1275,8 +1275,8 @@ final class Class_dd extends Class_wd {
       // java.lang.OutOfMemoryError: Java heap space
       //   at org.jetbrains.java.decompiler.util.collections.FastSparseSetFactory$FastSparseSet.getCopy(FastSparseSetFactory.java:95)
       //   at org.jetbrains.java.decompiler.util.collections.SFormsFastMapDirect.getCopy(SFormsFastMapDirect.java:67)
-      //   at org.jetbrains.java.decompiler.modules.decompiler.sforms.VarMapHolder.ofNormal(VarMapHolder.java:34)
-      //   at org.jetbrains.java.decompiler.modules.decompiler.sforms.SFormsConstructor.ssaStatements(SFormsConstructor.java:110)
+      //   at org.jetbrains.java.decompiler.modules.decompiler.sforms.SFormsConstructor.mergeInVarMaps(SFormsConstructor.java:243)
+      //   at org.jetbrains.java.decompiler.modules.decompiler.sforms.SFormsConstructor.ssaStatements(SFormsConstructor.java:107)
       //   at org.jetbrains.java.decompiler.modules.decompiler.sforms.SFormsConstructor.splitVariables(SFormsConstructor.java:94)
       //   at org.jetbrains.java.decompiler.modules.decompiler.sforms.SSAUConstructorSparseEx.splitVariables(SSAUConstructorSparseEx.java:43)
       //   at org.jetbrains.java.decompiler.modules.decompiler.StackVarsProcessor.simplifyStackVars(StackVarsProcessor.java:65)

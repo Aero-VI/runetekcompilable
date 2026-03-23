@@ -87,8 +87,8 @@ final class Class_wi extends Class_lf {
 
                            while (true) {
                               int var11;
-                              int var29 = 0;
                               double var30 = 0;
+                              int var29 = 0;
                               label243: {
                                  int var9;
                                  int var10;

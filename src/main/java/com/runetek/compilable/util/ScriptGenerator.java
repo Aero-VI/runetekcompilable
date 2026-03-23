@@ -10,21 +10,20 @@ public class ScriptGenerator {
     public static void generate(Path outputDir, String mainClass) throws IOException {
         // #compile.bat
         String compile = "@echo off\r\n"
-                + "echo Compiling RuneTek 508 client...\r\n"
-                + "dir /s /b src\\*.java > sources.txt\r\n"
-                + "javac -source 1.8 -target 1.8 -d bin @sources.txt\r\n"
-                + "del sources.txt\r\n"
+                + "echo Compiling RuneScape 508 client...\r\n"
+                + "if not exist bin mkdir bin\r\n"
+                + "javac -source 1.8 -target 1.8 -encoding UTF-8 -d bin src\\*.java\r\n"
                 + "if %ERRORLEVEL% EQU 0 (\r\n"
                 + "    echo Compilation successful!\r\n"
                 + ") else (\r\n"
-                + "    echo Compilation failed with errors.\r\n"
+                + "    echo Compilation failed. Check for errors above.\r\n"
                 + ")\r\n"
                 + "pause\r\n";
         Files.write(outputDir.resolve("#compile.bat"), compile.getBytes(StandardCharsets.UTF_8));
 
         // #run.bat
         String run = "@echo off\r\n"
-                + "echo Launching RuneTek 508 client...\r\n"
+                + "echo Launching RuneScape 508 client...\r\n"
                 + "java -cp bin " + mainClass + "\r\n"
                 + "pause\r\n";
         Files.write(outputDir.resolve("#run.bat"), run.getBytes(StandardCharsets.UTF_8));

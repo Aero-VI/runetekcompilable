@@ -2,6 +2,7 @@ package com.runetek.compilable;
 
 import com.runetek.compilable.transform.TransformPipeline;
 import com.runetek.compilable.decompile.VineflowerDecompiler;
+import com.runetek.compilable.postprocess.SourceFixer;
 import com.runetek.compilable.util.JarIO;
 import com.runetek.compilable.util.ScriptGenerator;
 import org.objectweb.asm.tree.ClassNode;
@@ -62,8 +63,13 @@ public class Main {
         VineflowerDecompiler.decompile(tempJar, srcDir);
         Files.deleteIfExists(tempJar);
 
-        // Phase 4: Generate batch scripts
-        System.out.println("\n[Phase 4] Generating batch scripts...");
+        // Phase 4: Post-process source fixes
+        System.out.println("\n[Phase 4] Post-processing source fixes...");
+        SourceFixer fixer = new SourceFixer();
+        fixer.fixAll(srcDir);
+
+        // Phase 5: Generate batch scripts
+        System.out.println("\n[Phase 5] Generating batch scripts...");
         String mainClass = findMainClass(classes);
         ScriptGenerator.generate(outputDir, mainClass);
 

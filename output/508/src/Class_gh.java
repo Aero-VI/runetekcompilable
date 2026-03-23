@@ -120,7 +120,7 @@ final class Class_gh extends Class_ff {
       try {
          return Class.forName(var0);
       } catch (ClassNotFoundException var2) {
-         NoClassDefFoundError err = new NoClassDefFoundError(); err.initCause(var2); throw err;
+         NoClassDefFoundError _err = new NoClassDefFoundError(); _err.initCause(var2); throw _err;
       }
    }
 }

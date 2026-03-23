@@ -1,11 +1,10 @@
 @echo off
-echo Compiling RuneTek 508 client...
-dir /s /b src\*.java > sources.txt
-javac -source 1.8 -target 1.8 -d bin @sources.txt
-del sources.txt
+echo Compiling RuneScape 508 client...
+if not exist bin mkdir bin
+javac -source 1.8 -target 1.8 -encoding UTF-8 -d bin src\*.java
 if %ERRORLEVEL% EQU 0 (
     echo Compilation successful!
 ) else (
-    echo Compilation failed with errors.
+    echo Compilation failed. Check for errors above.
 )
 pause

@@ -1892,7 +1892,7 @@ final class Class_r implements Class_nh {
          long var2 = this.b(-50);
          L++;
          Class var5;
-         try { var5 = nb != null ? nb : (nb = Class.forName("Class_r")); } catch (ClassNotFoundException ex) { throw new RuntimeException(ex); }
+         try { var5 = nb != null ? nb : (nb = Class.forName("Class_r")); } catch (ClassNotFoundException _ex) { throw new RuntimeException(_ex); }
          synchronized (var5) {
             if (Class_lh.Bb != null) {
                for (Class_ef var7 = (Class_ef)Class_lh.Bb.a(var2, 110); var7 != null; var7 = (Class_ef)Class_lh.Bb.c(109)) {

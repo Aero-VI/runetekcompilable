@@ -1,5 +1,4 @@
 import java.applet.Applet;
-
 final class Class_dk {
    static final Object a(String var0, Applet var1, Object[] var2, int var3) throws Throwable {
       try {
@@ -11,6 +10,7 @@ final class Class_dk {
 
    static final void a(String var0, int var1, Applet var2) throws Throwable {
       try {
+         // JSObject.getWindow stubbed out
          if (var1 == 4149) {
             ;
          }
