@@ -3,7 +3,6 @@ import java.applet.Applet;
 final class Class_dk {
    static final Object a(String var0, Applet var1, Object[] var2, int var3) throws Throwable {
       try {
-         // JSObject.getWindow removed in modern Java - stub
          return null;
       } catch (RuntimeException var5) {
          throw var5;
@@ -12,7 +11,6 @@ final class Class_dk {
 
    static final void a(String var0, int var1, Applet var2) throws Throwable {
       try {
-         // JSObject.getWindow removed in modern Java - stub
          if (var1 == 4149) {
             ;
          }
