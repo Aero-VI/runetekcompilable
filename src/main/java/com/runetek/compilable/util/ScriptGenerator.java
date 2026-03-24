@@ -8,12 +8,18 @@ import java.nio.file.Path;
 public class ScriptGenerator {
 
     public static void generate(Path outputDir, String mainClass) throws IOException {
-        // #compile.bat
+        // #compile.bat — uses @sources.txt so subdirectories are included.
+        // Quotes each path to handle spaces in folder names.
         String compile = "@echo off\r\n"
                 + "echo Compiling RuneScape 508 client...\r\n"
                 + "if not exist bin mkdir bin\r\n"
-                + "javac -source 1.8 -target 1.8 -encoding UTF-8 -d bin src\\*.java\r\n"
-                + "if %ERRORLEVEL% EQU 0 (\r\n"
+                + "(\r\n"
+                + "for /r src %%f in (*.java) do @echo \"%%f\"\r\n"
+                + ") > sources.txt\r\n"
+                + "javac -source 1.8 -target 1.8 -encoding UTF-8 -d bin @sources.txt\r\n"
+                + "set RESULT=%ERRORLEVEL%\r\n"
+                + "del sources.txt\r\n"
+                + "if %RESULT% EQU 0 (\r\n"
                 + "    echo Compilation successful!\r\n"
                 + ") else (\r\n"
                 + "    echo Compilation failed. Check for errors above.\r\n"
