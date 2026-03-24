@@ -9,30 +9,66 @@ import org.objectweb.asm.tree.ClassNode;
 
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.List;
 import java.util.Map;
 
 public class Main {
 
     public static void main(String[] args) throws Exception {
-        Path inputFile;
-        Path outputDir;
-
-        if (args.length >= 2) {
-            inputFile = Paths.get(args[0]);
-            outputDir = Paths.get(args[1]);
-        } else if (args.length == 1) {
-            inputFile = Paths.get(args[0]);
-            outputDir = Paths.get("output/508");
+        if (args.length >= 1) {
+            // Explicit arguments: process a single file
+            Path inputFile = Paths.get(args[0]);
+            Path outputDir = args.length >= 2
+                    ? Paths.get(args[1])
+                    : Paths.get("output", getBaseName(inputFile));
+            if (!Files.exists(inputFile)) {
+                System.err.println("Input file not found: " + inputFile);
+                System.exit(1);
+            }
+            processJar(inputFile, outputDir);
         } else {
-            // Default for development
-            inputFile = Paths.get("input/508sd.dat");
-            outputDir = Paths.get("output/508");
-        }
+            // No arguments: scan input/ folder for all .jar and .dat files
+            Path inputDir = Paths.get("input");
+            if (!Files.exists(inputDir)) {
+                System.err.println("No input/ folder found. Place JAR files in input/ or pass a path as argument.");
+                System.err.println("Usage: java -jar runetekcompilable.jar [input.jar] [output-dir]");
+                System.exit(1);
+            }
 
+            List<Path> inputs = Files.list(inputDir)
+                    .filter(p -> {
+                        String name = p.getFileName().toString().toLowerCase();
+                        return name.endsWith(".jar") || name.endsWith(".dat");
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+
+            if (inputs.isEmpty()) {
+                System.err.println("No .jar or .dat files found in input/ folder.");
+                System.err.println("Download a client JAR and place it in input/");
+                System.exit(1);
+            }
+
+            System.out.println("Found " + inputs.size() + " input file(s) in input/");
+            System.out.println();
+
+            for (Path inputFile : inputs) {
+                Path outputDir = Paths.get("output", getBaseName(inputFile));
+                processJar(inputFile, outputDir);
+                System.out.println();
+            }
+        }
+    }
+
+    private static String getBaseName(Path file) {
+        String name = file.getFileName().toString();
+        int dot = name.lastIndexOf('.');
+        return dot > 0 ? name.substring(0, dot) : name;
+    }
+
+    private static void processJar(Path inputFile, Path outputDir) throws Exception {
         if (!Files.exists(inputFile)) {
             System.err.println("Input file not found: " + inputFile);
-            System.err.println("Usage: java -jar runetekcompilable.jar <input.jar> [output-dir]");
-            System.exit(1);
+            return;
         }
 
         System.out.println("==========================================================");
