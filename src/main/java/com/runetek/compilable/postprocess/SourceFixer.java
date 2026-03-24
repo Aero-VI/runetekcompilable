@@ -4,6 +4,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.stream.*;
 import java.util.Comparator;
 import java.util.regex.*;
 
@@ -45,6 +46,7 @@ public class SourceFixer {
             content = fixInitCauseThrow(content);
             content = fixJSObjectGetWindow(content, file.getFileName().toString());
             content = fixScopedVariables(content);
+            content = fixUnqualifiedClassRefs(content, file.getFileName().toString());
 
             if (!content.equals(original)) {
                 Files.write(file, content.getBytes(StandardCharsets.UTF_8));
@@ -57,8 +59,36 @@ public class SourceFixer {
         fixObjectTypeCasts(srcDir, javaFiles);
         fixNonStaticAccess(srcDir, javaFiles);
         fixMissingReturnStatements(srcDir, javaFiles);
+        fixMissingInterfaceMethods(srcDir, javaFiles);
+        fixLossyConversions(srcDir, javaFiles);
+        iterativeCompileFix(srcDir);
+        applyTargetedFixes(srcDir);
 
         System.out.println("    Applied " + totalFixes + " source fixes");
+    }
+
+    private void applyTargetedFixes(Path srcDir) throws IOException {
+        // Targeted fixes for remaining specific issues in HD client
+        Path sePath = srcDir.resolve("Class_se.java");
+        if (Files.exists(sePath)) {
+            String content = new String(Files.readAllBytes(sePath), StandardCharsets.UTF_8);
+            String original = content;
+            // var21 needs to be byte, not int — method parameter expects byte
+            content = content.replaceAll("\\bint (var21 = 0;)", "byte $1");
+            // and the ternary returns int, so cast it
+            content = content.replaceAll("var21 = (2 == Class_hj\\.e\\(\\(byte\\)79\\) \\? )(\\(byte\\))?Class_el\\.b : 1;", "var21 = (byte)($1Class_el.b : 1);");
+            if (!content.equals(original)) Files.write(sePath, content.getBytes(StandardCharsets.UTF_8));
+        }
+
+        Path fkPath = srcDir.resolve("Class_fk.java");
+        if (Files.exists(fkPath)) {
+            String content = new String(Files.readAllBytes(fkPath), StandardCharsets.UTF_8);
+            String original = content;
+            if (!content.contains("long var16 = 0;\n                  label648:")) {
+                content = content.replace("                  label648: {", "                  long var16 = 0;\n                  label648: {");
+                if (!content.equals(original)) Files.write(fkPath, content.getBytes(StandardCharsets.UTF_8));
+            }
+        }
     }
 
     /**
@@ -82,8 +112,11 @@ public class SourceFixer {
      * Pattern: "int varN = client.lb;\n      super();" → "super();\n      int varN = client.lb;"
      */
     private String fixFlexibleConstructors(String content) {
+        // Match any variable assignment before super(...) in a constructor
+        // e.g. "int var5 = client.lb;" or "boolean var5 = client.ob;"
+        // super() can have arguments: super(var1, var2, ...) or super()
         Pattern p = Pattern.compile(
-                "([ \\t]*)(int\\s+var\\d+\\s*=\\s*client\\.lb;)\\s*\\n([ \\t]*)(super\\(\\);)");
+                "([ \\t]*)((?:int|boolean|long|byte|short|char|float|double|\\w+)\\s+var\\d+\\s*=\\s*client\\.\\w+;)\\s*\\n([ \\t]*)(super\\([^)]*\\);)");
         Matcher m = p.matcher(content);
         StringBuffer sb = new StringBuffer();
         while (m.find()) {
@@ -191,6 +224,28 @@ public class SourceFixer {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * Fix unqualified class references like "sl.class" that should be "Class_sl.class".
+     * The class renamer adds "Class_" prefix but some synchronized/reflection blocks
+     * may reference the old short name.
+     */
+    private String fixUnqualifiedClassRefs(String content, String fileName) {
+        // Extract the short name from the file: Class_xx.java -> xx
+        String baseName = fileName.replace(".java", "");
+        if (baseName.startsWith("Class_")) {
+            String shortName = baseName.substring(6); // "xx" from "Class_xx"
+            // Fix: synchronized(xx.class) -> synchronized(Class_xx.class)
+            String pattern = "\\b" + shortName + "\\.class\\b";
+            String replacement = baseName + ".class";
+            String fixed = content.replaceAll(pattern, replacement);
+            if (!fixed.equals(content)) {
+                totalFixes++;
+                return fixed;
+            }
+        }
+        return content;
     }
 
     /**
@@ -614,5 +669,236 @@ public class SourceFixer {
             Thread.currentThread().interrupt();
         }
         return result;
+    }
+
+    /**
+     * Fix lossy conversions like "byte[] arr; arr[i] = intVal++;"
+     */
+    private void fixLossyConversions(Path srcDir, List<Path> files) throws IOException {
+        for (Path file : files) {
+            String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            String original = content;
+            // Pattern: byteArray[idx] = intExpr++ or byteArray[idx] = intExpr
+            // where the assignment is from int to byte
+            content = content.replaceAll(
+                    "(\\w+\\[\\w+\\])\\s*=\\s*(\\w+\\+\\+);",
+                    "$1 = (byte)($2);");
+            if (!content.equals(original)) {
+                // Only write if actually needed - check if there are byte arrays
+                if (content.contains("byte[]")) {
+                    totalFixes++;
+                    Files.write(file, content.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+        }
+    }
+
+    /**
+     * Iteratively compile and fix "cannot find symbol" errors for variables
+     * declared inside label blocks but used outside.
+     * Runs javac, reads errors, adds missing declarations, repeats.
+     */
+    private void iterativeCompileFix(Path srcDir) throws IOException {
+        for (int iteration = 0; iteration < 5; iteration++) {
+            List<String> errors = trialCompile(srcDir);
+            List<String> cannotFind = errors.stream()
+                    .filter(l -> l.contains("cannot find symbol"))
+                    .collect(Collectors.toList());
+
+            if (cannotFind.isEmpty()) break;
+
+            // Parse errors: "src/File.java:123: error: cannot find symbol"
+            // Then look at the next lines for "symbol: variable varN"
+            Map<String, Set<String>> fileVars = new LinkedHashMap<>();
+            for (int i = 0; i < errors.size(); i++) {
+                String line = errors.get(i);
+                if (!line.contains("cannot find symbol")) continue;
+                // Get file path
+                String filePath = line.split(":")[0];
+                // Look for "symbol:   variable varN" in next few lines
+                for (int j = i + 1; j < Math.min(i + 5, errors.size()); j++) {
+                    java.util.regex.Matcher vm = Pattern.compile("symbol:\\s+variable\\s+(var\\d+)").matcher(errors.get(j));
+                    if (vm.find()) {
+                        fileVars.computeIfAbsent(filePath, k -> new LinkedHashSet<>()).add(vm.group(1));
+                        break;
+                    }
+                }
+            }
+
+            if (fileVars.isEmpty()) break;
+
+            int fixed = 0;
+            for (Map.Entry<String, Set<String>> entry : fileVars.entrySet()) {
+                Path file = srcDir.getParent().resolve(entry.getKey());
+                if (!Files.exists(file)) file = srcDir.resolve(entry.getKey().replaceFirst("src/", ""));
+                if (!Files.exists(file)) continue;
+
+                String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+                String original = content;
+
+                for (String varName : entry.getValue()) {
+                    // Skip if already declared in content
+                    if (Pattern.compile("\\b(?:int|byte|long|float|double|boolean|short|char|byte\\[\\]|int\\[\\]|long\\[\\])\\s+" + varName + "\\b").matcher(content).find()) continue;
+
+                    // Infer type from usage context
+                    String type = inferVarType(varName, content, content);
+                    String defaultVal = defaultValue(type);
+
+                    // Find the label block containing first use of this variable
+                    int firstUse = content.indexOf(varName + " =");
+                    if (firstUse < 0) firstUse = content.indexOf(varName + ",");
+                    if (firstUse < 0) continue;
+
+                    // Find the enclosing label block start
+                    String before = content.substring(0, firstUse);
+                    int labelIdx = before.lastIndexOf("label");
+                    if (labelIdx < 0) continue;
+
+                    // Find the line start before the label
+                    int lineStart = before.lastIndexOf('\n', labelIdx);
+                    if (lineStart < 0) lineStart = 0;
+                    String indent = "";
+                    java.util.regex.Matcher indentM = Pattern.compile("(\\s+)label").matcher(before.substring(lineStart));
+                    if (indentM.find()) indent = indentM.group(1);
+
+                    // Insert declaration before the label
+                    content = content.substring(0, lineStart + 1) + indent + type + " " + varName + " = " + defaultVal + ";\n" + content.substring(lineStart + 1);
+                    fixed++;
+                }
+
+                if (!content.equals(original)) {
+                    Files.write(file, content.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+
+            totalFixes += fixed;
+            if (fixed == 0) break;
+            System.out.println("    Iterative fix round " + (iteration + 1) + ": fixed " + fixed + " scoping issues");
+        }
+    }
+
+    /**
+     * Fix classes that implement interfaces but are missing required methods.
+     * e.g. FocusListener requires focusGained and focusLost.
+     */
+    private void fixMissingInterfaceMethods(Path srcDir, List<Path> files) throws IOException {
+        for (Path file : files) {
+            String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            String original = content;
+
+            // FocusListener: needs focusGained and focusLost
+            if (content.contains("implements") && content.contains("FocusListener")) {
+                if (!content.contains("focusGained")) {
+                    content = content.replaceFirst("\\}\\s*$",
+                            "   public void focusGained(java.awt.event.FocusEvent e) {}\n" +
+                            "   public void focusLost(java.awt.event.FocusEvent e) {}\n}\n");
+                    totalFixes++;
+                }
+            }
+
+            if (!content.equals(original)) {
+                Files.write(file, content.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+    }
+
+    /**
+     * Fix variables used outside their label block scope.
+     * Scans for "varN = expr" inside label blocks where varN is not declared in the outer scope.
+     * Adds declarations before the label block.
+     */
+    private void fixLabelScopedVariables(Path srcDir, List<Path> files) throws IOException {
+        for (Path file : files) {
+            String content = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
+            String original = content;
+
+            // Find label blocks: "labelNNN: {"
+            Pattern labelPat = Pattern.compile("(\\s+)(label\\d+:\\s*\\{)");
+            Matcher lm = labelPat.matcher(content);
+
+            // For each label block, find variables assigned inside that aren't declared in scope
+            // This is a heuristic - we look for "varN = " inside and check if "int varN" etc exists before
+            Set<String> insertions = new LinkedHashSet<>();
+            while (lm.find()) {
+                int labelStart = lm.start();
+                String indent = lm.group(1);
+
+                // Find the matching closing brace (simple brace counting)
+                int braceDepth = 0;
+                int blockEnd = -1;
+                for (int i = lm.end(); i < content.length(); i++) {
+                    if (content.charAt(i) == '{') braceDepth++;
+                    else if (content.charAt(i) == '}') {
+                        if (braceDepth == 0) { blockEnd = i; break; }
+                        braceDepth--;
+                    }
+                }
+                if (blockEnd < 0) continue;
+
+                String block = content.substring(lm.end(), blockEnd);
+                // Find variable assignments in the block
+                Pattern assignPat = Pattern.compile("\\b(var\\d+)\\s*=\\s*");
+                Matcher am = assignPat.matcher(block);
+                while (am.find()) {
+                    String varName = am.group(1);
+                    // Check if this variable is declared anywhere before the label block
+                    String before = content.substring(0, labelStart);
+                    if (!before.contains(" " + varName + " ") && !before.contains(" " + varName + ";")
+                            && !before.contains(" " + varName + "=") && !before.contains(" " + varName + ",")) {
+                        // Variable not declared before - needs a declaration
+                        // Infer type from usage
+                        String type = inferVarType(varName, block, content.substring(blockEnd));
+                        insertions.add(indent + type + " " + varName + " = " + defaultValue(type) + ";\n");
+                    }
+                }
+            }
+
+            if (!insertions.isEmpty()) {
+                // Insert all declarations before the first label block
+                Matcher firstLabel = labelPat.matcher(content);
+                if (firstLabel.find()) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(content, 0, firstLabel.start());
+                    for (String ins : insertions) {
+                        sb.append(ins);
+                        totalFixes++;
+                    }
+                    sb.append(content.substring(firstLabel.start()));
+                    content = sb.toString();
+                }
+            }
+
+            if (!content.equals(original)) {
+                Files.write(file, content.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+    }
+
+    private String inferVarType(String varName, String block, String after) {
+        // Check assignment patterns
+        if (block.contains(varName + " = new byte[")) return "byte[]";
+        if (block.contains(varName + " = new int[")) return "int[]";
+        if (block.contains(varName + " = new long[")) return "long[]";
+        // Long: check for long literals (50L, 32767L) or long casts
+        if (block.contains("(long)" + varName) || block.contains("/ 50L")
+                || after.contains("(long)" + varName) || block.contains("32767L")
+                || after.contains("32767L < " + varName)) return "long";
+        // Int is default — safer than byte since method returns are usually int
+        if (block.contains("(float)" + varName)) return "float";
+        if (block.contains("(double)" + varName)) return "double";
+        return "int";
+    }
+
+    private String defaultValue(String type) {
+        switch (type) {
+            case "byte": return "(byte)0";
+            case "long": return "0L";
+            case "float": return "0.0f";
+            case "double": return "0.0";
+            case "boolean": return "false";
+            default:
+                if (type.endsWith("[]")) return "null";
+                return "0";
+        }
     }
 }

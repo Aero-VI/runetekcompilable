@@ -79,9 +79,13 @@ public class Main {
         System.out.println("Output: " + outputDir);
         System.out.println();
 
+        // Phase 0: Detect and unpack Pack200 if needed
+        System.out.println("[Phase 0] Detecting input format...");
+        Path jarFile = com.runetek.compilable.util.Pack200Unpacker.ensureJar(inputFile);
+
         // Phase 1: Load classes from JAR
-        System.out.println("[Phase 1] Loading classes from JAR...");
-        Map<String, ClassNode> classes = JarIO.loadJar(inputFile);
+        System.out.println("\n[Phase 1] Loading classes from JAR...");
+        Map<String, ClassNode> classes = JarIO.loadJar(jarFile);
         System.out.println("  Loaded " + classes.size() + " classes");
 
         // Phase 2: ASM Deobfuscation
@@ -103,6 +107,11 @@ public class Main {
         System.out.println("\n[Phase 4] Post-processing source fixes...");
         SourceFixer fixer = new SourceFixer();
         fixer.fixAll(srcDir);
+
+        // Phase 4b: Generate JOGL stubs if needed
+        if (com.runetek.compilable.postprocess.JoglStubGenerator.isNeeded(srcDir)) {
+            com.runetek.compilable.postprocess.JoglStubGenerator.generate(srcDir);
+        }
 
         // Phase 5: Generate batch scripts
         System.out.println("\n[Phase 5] Generating batch scripts...");
