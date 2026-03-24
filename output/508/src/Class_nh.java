@@ -1,2 +1,0 @@
-interface Class_nh {
-}
